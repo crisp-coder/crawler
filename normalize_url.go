@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/url"
 	"path"
 	"sort"
@@ -93,6 +92,5 @@ func normalizeURL(u string) (string, error) {
 
 	url_str += cleanQuery(parsed_url)
 
-	fmt.Println(url_str)
 	return url_str, nil
 }
