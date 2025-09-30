@@ -8,6 +8,7 @@ import (
 )
 
 type config struct {
+	maxPages           int
 	pages              map[string]PageData
 	baseURL            *url.URL
 	mu                 *sync.Mutex
@@ -16,16 +17,18 @@ type config struct {
 }
 
 func (cfg *config) crawlPage(rawCurrentURL string) {
+	// Stop crawling once max pages is reached
+	cfg.mu.Lock()
+	if len(cfg.pages) >= cfg.maxPages {
+		cfg.mu.Unlock()
+		return
+	}
+	cfg.mu.Unlock()
+
 	// Parse current URL
 	currentURL, err := url.Parse(rawCurrentURL)
 	if err != nil {
 		log.Println("bad current:", err)
-		return
-	}
-
-	// Verify next link is on same domain
-	if currentURL.Hostname() != cfg.baseURL.Hostname() {
-		log.Println("Url is on different domain:")
 		return
 	}
 
@@ -45,6 +48,7 @@ func (cfg *config) crawlPage(rawCurrentURL string) {
 
 	// Verify the requested resource is html
 	if !strings.HasPrefix(ct, "text/html") {
+		log.Printf("Content-Type not text/html: %v\n", currentURL.String())
 		return
 	}
 
@@ -61,32 +65,34 @@ func (cfg *config) crawlPage(rawCurrentURL string) {
 		return
 	}
 
-	// For each link, recurse if the link is not already in the pages map
+	log.Printf("starting crawl of: %v\n", rawCurrentURL)
 	for _, link := range links {
 
+		// Skip links with these prefixes
 		if strings.HasPrefix(link, "mailto:") || strings.HasPrefix(link, "tel:") {
-			log.Printf("skipping link: %v\n", link)
 			continue
 		}
 
 		n, err := normalizeURL(link)
 		if err != nil {
-			log.Printf("normalize: %v\n", err)
-			continue
-		}
-
-		if !cfg.addPageVisit(n) {
-			log.Printf("skipping link: %v\n", n)
 			continue
 		}
 
 		u, err := url.Parse(link)
 		if err != nil {
-			log.Printf("url parse: %v\n", err)
 			continue
 		}
 
-		// Launch go routine
+		// Verify next link is on same domain
+		if currentURL.Hostname() != cfg.baseURL.Hostname() {
+			continue
+		}
+
+		if !cfg.addPageVisit(n) {
+			continue
+		}
+
+		// Recursive crawl on link
 		cfg.wg.Add(1)
 		go func(urlLink string) {
 			cfg.concurrencyControl <- struct{}{}
@@ -105,6 +111,5 @@ func (cfg *config) addPageVisit(normalizedURL string) (isFirst bool) {
 	if _, ok := cfg.pages[normalizedURL]; ok {
 		return false
 	}
-	cfg.pages[normalizedURL] = PageData{}
 	return true
 }
